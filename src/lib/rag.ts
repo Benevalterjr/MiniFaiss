@@ -1,4 +1,5 @@
-import { openDB } from 'idb';
+import { openDB, IDBPDatabase } from 'idb';
+import { QVec, RAGIndexState, Result } from '../types';
 
 /**
  * TurboQuant 4-bit Quantization and MiniFaiss-like Indexing
@@ -54,60 +55,92 @@ function hadamard(v: Float32Array, rng: () => number): Float32Array {
   return out;
 }
 
+// Optimized 4-bit centroids for N(0,1)
 const BOOKS: Record<number, { b: number[]; c: number[] }> = {
   4: {
     b: [
-      -1.51, -1.152, -0.896, -0.661, -0.437, -0.218, 0, 0.218, 0.437, 0.661,
-      0.896, 1.152, 1.51, 1.894, 2.4,
+      -1.894, -1.51, -1.152, -0.896, -0.661, -0.437, -0.218, 0, 0.218, 0.437,
+      0.661, 0.896, 1.152, 1.51, 1.894, 2.4,
     ],
     c: [
-      -1.894, -1.31, -1.024, -0.778, -0.549, -0.328, -0.11, 0.11, 0.328, 0.549,
-      0.778, 1.024, 1.31, 1.632, 2.095, 2.8,
+      -2.095, -1.632, -1.31, -1.024, -0.778, -0.549, -0.328, -0.11, 0.11, 0.328,
+      0.549, 0.778, 1.024, 1.31, 1.632, 2.095,
     ],
   },
 };
 
-export interface QVec {
-  idx: Uint8Array;
-  norm: number;
-  dim: number;
-}
-
-export interface RAGIndexState {
-  centroids: Float32Array[];
-  lists: [number, string[]][];
-  store: [string, { qv: QVec; text: string; centroid: number }][];
-}
-
-export interface Result {
-  id: string;
-  text: string;
-  score: number;
-  centroid: number;
-}
-
 export class TurboQuant {
+  // TurboQuant-prod: 2-stage quantization
   quantize(v: Float32Array): QVec {
     const { norm, normalized } = normalize(v);
     const rng = seededRandom(42);
     const rot = hadamard(normalized, rng);
+    
+    // Stage 1: 4-bit MSE quantization
     const idx = new Uint8Array(v.length);
-    const { b } = BOOKS[4];
+    const recon = new Float32Array(v.length);
+    const { b, c } = BOOKS[4];
+    
+    // Variance scaling for standard N(0,1) codebook
+    const stdFactor = Math.sqrt(v.length);
     for (let i = 0; i < v.length; i++) {
+      const scaledVal = rot[i] * stdFactor;
       let k = 0;
-      while (k < b.length && rot[i] > b[k]) k++;
+      while (k < b.length && scaledVal > b[k]) k++;
       idx[i] = k;
+      recon[i] = c[k] / stdFactor; // Scale back
     }
-    return { idx, norm, dim: v.length };
+    
+    // Stage 2: 1-bit residual quantization for unbiased IP
+    const residual = new Float32Array(v.length);
+    for (let i = 0; i < v.length; i++) {
+      residual[i] = rot[i] - recon[i];
+    }
+    
+    const resNorm = l2Norm(residual);
+    // Pack 1-bit signs (1 = positive, 0 = negative)
+    const resIdxSize = Math.ceil(v.length / 8);
+    const resIdx = new Uint8Array(resIdxSize);
+    for (let i = 0; i < v.length; i++) {
+      if (residual[i] >= 0) {
+        resIdx[i >> 3] |= (1 << (i & 7));
+      }
+    }
+    
+    return { idx, resIdx, norm, resNorm, dim: v.length };
   }
 
   ip(query: Float32Array, qv: QVec): number {
     const { normalized: qn } = normalize(query);
-    const rot = hadamard(qn, seededRandom(42));
+    const rng = seededRandom(42);
+    const qRot = hadamard(qn, rng);
     const { c } = BOOKS[4];
-    let dotVal = 0;
-    for (let i = 0; i < qv.dim; i++) dotVal += rot[i] * c[qv.idx[i]];
-    return dotVal * qv.norm;
+    
+    // MSE Component
+    let dotMse = 0;
+    const stdFactor = Math.sqrt(qv.dim);
+    for (let i = 0; i < qv.dim; i++) {
+      dotMse += qRot[i] * (c[qv.idx[i]] / stdFactor);
+    }
+    
+    // Residual Component (Unbiased Correction)
+    let dotRes = 0;
+    const resNorm = qv.resNorm ?? 0;
+    const resIdx = qv.resIdx;
+    const resScale = resNorm / Math.sqrt(qv.dim);
+
+    if (resIdx && resIdx.length > 0) {
+      for (let i = 0; i < qv.dim; i++) {
+        const bit = (resIdx[i >> 3] >> (i & 7)) & 1;
+        const sign = bit ? 1 : -1;
+        dotRes += qRot[i] * sign;
+      }
+    }
+    
+    let score = (dotMse * qv.norm) + (dotRes * resScale * qv.norm);
+    if (Number.isNaN(score)) score = 0;
+    
+    return Math.max(0, Math.min(1, score)); // Clamp for cosine
   }
 }
 
@@ -131,6 +164,7 @@ export class IVF {
   }
 
   assign(id: string, vector: Float32Array): number {
+    if (this.centroids.length === 0) return 0;
     const c = this.closestCentroid(vector);
     if (!this.lists.has(c)) this.lists.set(c, []);
     this.lists.get(c)!.push(id);
@@ -179,7 +213,7 @@ export class IVF {
 export class RAGStore {
   private ivf: IVF;
   private quant = new TurboQuant();
-  private store = new Map<string, { qv: QVec; text: string; centroid: number }>();
+  private store = new Map<string, { qv: QVec; text: string; centroid: number; metadata?: Record<string, unknown> }>();
   private dbName = 'TurboRAG_DB';
   private storeName = 'index_state';
 
@@ -191,14 +225,16 @@ export class RAGStore {
     this.ivf.train(vectors);
   }
 
-  add(id: string, text: string, emb: Float32Array) {
+  add(id: string, text: string, emb: Float32Array, metadata?: Record<string, unknown>) {
     const centroid = this.ivf.assign(id, emb);
     const qv = this.quant.quantize(emb);
-    this.store.set(id, { qv, text, centroid });
+    this.store.set(id, { qv, text, centroid, metadata });
   }
 
   search(query: Float32Array, k = 3, probes = 2): Result[] {
-    const centroidIndices = this.ivf.search(query, probes);
+    // Dynamic probing: use more probes for small collections to ensure accuracy
+    const actualProbes = this.store.size < 50 ? this.ivf.centroids.length : probes;
+    const centroidIndices = this.ivf.search(query, actualProbes);
     const candidates: string[] = [];
     for (const cIdx of centroidIndices) {
       candidates.push(...(this.ivf.lists.get(cIdx) || []));
@@ -210,22 +246,25 @@ export class RAGStore {
           id,
           text: item.text,
           score: this.quant.ip(query, item.qv),
-          centroid: item.centroid
+          centroid: item.centroid,
+          metadata: item.metadata
         };
       })
       .sort((a, b) => b.score - a.score)
+      .filter((v, i, a) => a.findIndex(t => t.id === v.id) === i) // Unique
       .slice(0, k);
   }
 
   stats() {
     let dims = 0;
     for (const { qv } of this.store.values()) dims += qv.dim;
+    // Calculation: 4 bits/dim + 1 bit/dim + 4 bytes norm + 4 bytes resNorm
     const f32 = dims * 4;
-    const q4 = Math.ceil((dims * 4) / 8) + this.store.size * 8;
+    const qBytes = (dims * 5) / 8 + (this.store.size * 8); 
     return {
       docs: this.store.size,
-      ratio: (f32 / q4).toFixed(1),
-      saved: f32 - q4,
+      ratio: (f32 / qBytes).toFixed(1),
+      saved: Math.max(0, Math.floor(f32 - qBytes)),
       clusters: this.ivf.centroids.length
     };
   }
@@ -251,7 +290,7 @@ export class RAGStore {
   }
 
   async saveToIndexedDB() {
-    const db = await openDB(this.dbName, 1, {
+    const db: IDBPDatabase = await openDB(this.dbName, 1, {
       upgrade(db) {
         if (!db.objectStoreNames.contains('index_state')) {
           db.createObjectStore('index_state');
@@ -265,7 +304,7 @@ export class RAGStore {
 
   async loadFromIndexedDB(): Promise<boolean> {
     try {
-      const db = await openDB(this.dbName, 1, {
+      const db: IDBPDatabase = await openDB(this.dbName, 1, {
         upgrade(db) {
           if (!db.objectStoreNames.contains('index_state')) {
             db.createObjectStore('index_state');
