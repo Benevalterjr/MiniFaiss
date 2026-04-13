@@ -1,7 +1,6 @@
-<div align="center">
-  <img width="1200" alt="TurboRAG Dashboard" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+  <img width="1200" alt="MiniFaiss Dashboard" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
   
-  # ⚡ TurboRAG
+  # ⚡ MiniFaiss
   ### High-Performance, Browser-Native Vector Database & RAG Engine
   
   [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -14,9 +13,9 @@
 
 ## 🚀 Overview
 
-**TurboRAG** (formerly MiniFaiss) is a state-of-the-art vector search engine built to run entirely in the browser. It implements the cutting-edge **TurboQuant (ICLR 2026)** quantization research, providing massive memory savings (6x+) with near-zero accuracy loss.
+**MiniFaiss** is a state-of-the-art vector search engine built to run entirely in the browser. It implements the cutting-edge **TurboQuant (ICLR 2026)** quantization research, providing massive memory savings (6x+) with near-zero accuracy loss.
 
-Optimized for **Brazilian Portuguese (PT-BR)**, TurboRAG enables privacy-first, local-only RAG applications without any server dependency.
+Optimized for **Brazilian Portuguese (PT-BR)**, MiniFaiss enables privacy-first, local-only RAG applications without any server dependency.
 
 ## ✨ Key Features
 
@@ -63,7 +62,7 @@ Optimized for **Brazilian Portuguese (PT-BR)**, TurboRAG enables privacy-first, 
 
 ## 📐 Architecture & Research
 
-TurboRAG implements a Randomized Walsh-Hadamard Transform (RWHT) to distribute vector information before quantization. This approach, combined with dynamic variance scaling, allows high-dimensional embeddings (384-dim) to be compressed into just a few bits per dimension while maintaining ranking precision.
+MiniFaiss implements a Randomized Walsh-Hadamard Transform (RWHT) to distribute vector information before quantization. This approach, combined with dynamic variance scaling, allows high-dimensional embeddings (384-dim) to be compressed into just a few bits per dimension while maintaining ranking precision.
 
 For more details, see our internal documentation:
 - 📄 [Product Requirements Document (PRD)](PRD.md)

@@ -1,4 +1,4 @@
-# Technical Specification: TurboRAG Engine
+# Technical Specification: MiniFaiss Engine
 
 **Version:** 1.0  
 **Technology Stack:** React, TypeScript, Vite, Comlink, Transformers.js, PDF.js, IDB.
@@ -6,7 +6,7 @@
 ---
 
 ## 1. System Architecture
-TurboRAG follows a **Local-First, Worker-Centric** architecture.
+MiniFaiss follows a **Local-First, Worker-Centric** architecture.
 
 - **Main Thread (UI)**: React application handling user interactions, document management, and visualization.
 - **Worker Thread (Engine)**: Offloads heavy computation (Transformers.js inference, Vector Quantization, IVF Training).

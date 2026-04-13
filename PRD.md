@@ -1,14 +1,14 @@
-# Product Requirements Document (PRD): TurboRAG
+# Product Requirements Document (PRD): MiniFaiss
 
 **Version:** 1.0  
 **Status:** Completed  
 **Project Lead:** Antigravity AI  
-**Repository:** MiniFaiss (Evolved to TurboRAG)
+**Repository:** MiniFaiss
 
 ---
 
 ## 1. Executive Summary
-TurboRAG is a high-performance, privacy-first, and browser-native vector database and RAG engine. It leverages state-of-the-art quantization research (TurboQuant, ICLR 2026) to provide efficient, local-first document retrieval with near-optimal accuracy, specifically optimized for Brazilian Portuguese.
+MiniFaiss is a high-performance, privacy-first, and browser-native vector database and RAG engine. It leverages state-of-the-art quantization research (TurboQuant, ICLR 2026) to provide efficient, local-first document retrieval with near-optimal accuracy, specifically optimized for Brazilian Portuguese.
 
 ## 2. Problem Statement
 Most RAG (Retrieval-Augmented Generation) solutions rely on cloud-based vector databases (Pinecone, Weaviate) or heavy local server setups (Chroma, Qdrant). This leads to:

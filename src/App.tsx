@@ -28,8 +28,8 @@ import { TurboRAGWorker } from "./worker";
 import { Document, EngineStats } from "./types";
 
 const INITIAL_DOCS: Document[] = [
-  { id: "1", text: "O TurboQuant é uma técnica de quantização de vetores apresentada no ICLR 2026 que atinge distorção quase ótima.", source: "Artigo TurboQuant", type: 'txt' },
-  { id: "2", text: "O uso de quantização em dois estágios (MSE + Residual) permite estimativas de produto escalar não tendenciosas.", source: "Artigo TurboQuant", type: 'txt' },
+  { id: "1", text: "O MiniFaiss é uma técnica de quantização de vetores apresentada no ICLR 2026 que atinge distorção quase ótima.", source: "Artigo MiniFaiss", type: 'txt' },
+  { id: "2", text: "O uso de quantização em dois estágios (MSE + Residual) permite estimativas de produto escalar não tendenciosas.", source: "Artigo MiniFaiss", type: 'txt' },
   { id: "3", text: "Este projeto utiliza o modelo multilingual-e5-small para suporte superior ao Português do Brasil.", source: "Sistema", type: 'txt' },
 ];
 
@@ -56,7 +56,7 @@ export default function App() {
     const init = async () => {
       try {
         setStatus('loading-model');
-        addLog("Iniciando TurboRAG Worker...");
+        addLog("Iniciando MiniFaiss Worker...");
         
         const worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
         const api = wrap<TurboRAGWorker>(worker);
@@ -87,7 +87,7 @@ export default function App() {
   const indexDocuments = async (docsToIndex: Document[]) => {
     if (!workerApiRef.current) return;
     setStatus('indexing');
-    addLog(`Indexando ${docsToIndex.length} documentos com TurboQuant-prod...`);
+    addLog(`Indexando ${docsToIndex.length} documentos com MiniFaiss-prod...`);
     
     try {
       const newStats = await workerApiRef.current.indexDocuments(
@@ -219,9 +219,7 @@ export default function App() {
                 <Zap className="w-8 h-8 text-brand-400" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold tracking-tight text-white leading-none">
-                  Turbo<span className="text-brand-400 font-black">RAG</span>
-                </h1>
+                <h1 className="text-xl font-black tracking-tighter text-white">MiniFaiss</h1>
                 <p className="text-[10px] uppercase tracking-[0.2em] text-slate-500 mt-1 font-mono">ICLR 2026 Engine</p>
               </div>
             </div>
