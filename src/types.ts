@@ -4,6 +4,7 @@ export interface QVec {
   norm: number;
   resNorm: number;
   dim: number;
+  scale: number;
 }
 
 export interface Document {
@@ -25,7 +26,7 @@ export interface Result {
 export interface RAGIndexState {
   centroids: Float32Array[];
   lists: [number, string[]][];
-  store: [string, { qv: QVec; text: string; centroid: number; metadata?: Record<string, unknown> }][];
+  store: [string, { qv: QVec; text: string; full: Float32Array; centroid: number; metadata?: Record<string, unknown> }][];
 }
 
 export interface EngineStats {

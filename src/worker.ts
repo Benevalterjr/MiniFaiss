@@ -21,7 +21,11 @@ export class TurboRAGWorker {
   async init(progressCallback?: (p: { status: string; progress: number }) => void) {
     if (!this.extractor) {
       this.extractor = (await pipeline("feature-extraction", this.modelName, {
-        progress_callback: progressCallback
+        progress_callback: (p: any) => {
+          if (p.status === 'progress' && progressCallback) {
+            progressCallback(p);
+          }
+        }
       })) as FeatureExtractionPipeline;
     }
     
@@ -64,7 +68,7 @@ export class TurboRAGWorker {
 
   async search(query: string, k = 3, probes = 2) {
     const qEmb = await this.embed(`query: ${query}`);
-    return this.store.search(qEmb, k, probes);
+    return this.store.search(qEmb, query, k, probes);
   }
 
   async getStats() {

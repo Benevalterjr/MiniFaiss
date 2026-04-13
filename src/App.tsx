@@ -20,12 +20,11 @@ import {
   CheckCircle2,
   AlertTriangle
 } from "lucide-react";
-import { Result } from "./lib/rag";
 import { cn } from "./lib/utils";
 import { extractTextFromPDF } from "./lib/pdf";
 import { Remote } from "comlink";
 import { TurboRAGWorker } from "./worker";
-import { Document, EngineStats } from "./types";
+import { Document, EngineStats, Result } from "./types";
 
 const INITIAL_DOCS: Document[] = [
   { id: "1", text: "O MiniFaiss é uma técnica de quantização de vetores apresentada no ICLR 2026 que atinge distorção quase ótima.", source: "Artigo MiniFaiss", type: 'txt' },
@@ -34,7 +33,7 @@ const INITIAL_DOCS: Document[] = [
 ];
 
 export default function App() {
-  const [status, setStatus] = useState<'idle' | 'loading-model' | 'indexing' | 'ready' | 'error'>('idle');
+  const [status, setStatus] = useState<'idle' | 'loading-model' | 'indexing' | 'ready' | 'error' | 'processing'>('idle');
   const [progress, setProgress] = useState(0);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Result[]>([]);
@@ -49,7 +48,7 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const addLog = (msg: string) => {
-    setLogs(prev => [...prev.slice(-5), msg]);
+    setLogs(prev => [...prev.slice(-8), msg]);
   };
 
   useEffect(() => {
@@ -108,72 +107,87 @@ export default function App() {
   const handleFileUpload = async (files: FileList | null) => {
     if (!files || files.length === 0 || status !== 'ready') return;
     
+    setStatus('processing');
     const newDocs: Document[] = [];
-    addLog(`Processando ${files.length} arquivos...`);
+    addLog(`Iniciando pipeline para ${files.length} arquivo(s)...`);
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      let text = "";
-      let type: 'txt' | 'pdf' = 'txt';
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        addLog(`[${i + 1}/${files.length}] Extraindo: ${file.name}...`);
+        let text = "";
+        let type: 'txt' | 'pdf' = 'txt';
 
-      if (file.name.endsWith('.pdf')) {
-        text = await extractTextFromPDF(file);
-        type = 'pdf';
-      } else if (file.name.endsWith('.txt')) {
-        text = await file.text();
-        type = 'txt';
-      } else continue;
+        if (file.name.endsWith('.pdf')) {
+          text = await extractTextFromPDF(file);
+          type = 'pdf';
+        } else if (file.name.endsWith('.txt')) {
+          text = await file.text();
+          type = 'txt';
+        } else continue;
 
-      // Professional Chunking: target ~1000 chars per chunk
-      const targetSize = 1000;
-      const paragraphs = text.split(/\n\n+/).filter(p => p.trim().length > 0);
-      
-      paragraphs.forEach((para) => {
-        const p = para.trim();
-        if (p.length <= targetSize + 200) {
-          // Paragraph is small enough, keep as one chunk
-          if (p.length > 10) {
-            newDocs.push({
-              id: `doc-${Date.now()}-${i}-${newDocs.length}`,
-              text: p,
-              source: file.name,
-              type
-            });
-          }
-        } else {
-          // Paragraph is too large, split by sentences or blocks
-          const sentences = p.split(/([.!?]\s+)/);
-          let currentChunk = "";
-          
-          for (const part of sentences) {
-            if ((currentChunk + part).length > targetSize && currentChunk.length > 0) {
+        // Professional Chunking: target ~1000 chars per chunk
+        const targetSize = 1000;
+        const paragraphs = text.split(/\n\n+/).filter(p => p.trim().length > 0);
+        
+        paragraphs.forEach((para) => {
+          const p = para.trim();
+          if (p.length <= targetSize + 200) {
+            // Paragraph is small enough, keep as one chunk
+            if (p.length > 10) {
+              newDocs.push({
+                id: `doc-${Date.now()}-${i}-${newDocs.length}`,
+                text: p,
+                source: file.name,
+                type
+              });
+            }
+          } else {
+            // Paragraph is too large, split by sentences or blocks
+            const sentences = p.split(/([.!?]\s+)/);
+            let currentChunk = "";
+            
+            for (const part of sentences) {
+              if ((currentChunk + part).length > targetSize && currentChunk.length > 0) {
+                newDocs.push({
+                  id: `doc-${Date.now()}-${i}-${newDocs.length}`,
+                  text: currentChunk.trim(),
+                  source: file.name,
+                  type
+                });
+                currentChunk = "";
+              }
+              currentChunk += part;
+            }
+            if (currentChunk.trim().length > 10) {
               newDocs.push({
                 id: `doc-${Date.now()}-${i}-${newDocs.length}`,
                 text: currentChunk.trim(),
                 source: file.name,
                 type
               });
-              currentChunk = "";
             }
-            currentChunk += part;
           }
-          if (currentChunk.trim().length > 10) {
-            newDocs.push({
-              id: `doc-${Date.now()}-${i}-${newDocs.length}`,
-              text: currentChunk.trim(),
-              source: file.name,
-              type
-            });
-          }
-        }
-      });
-    }
+        });
+        addLog(`✓ ${file.name} fragmentado.`);
+      }
 
-    if (newDocs.length > 0) {
-      const updatedDocs = [...documents, ...newDocs];
-      setDocuments(updatedDocs);
-      addLog(`Processado: ${newDocs.length} chunks detectados.`);
-      await indexDocuments(updatedDocs);
+      if (newDocs.length > 0) {
+        addLog(`Total: ${newDocs.length} novos fragmentos detectados.`);
+        setDocuments(prev => {
+          const updated = [...prev, ...newDocs];
+          // Trigger re-indexing with the updated combined set
+          indexDocuments(updated);
+          return updated;
+        });
+      } else {
+        addLog("Aviso: Nenhum texto extraído do arquivo.");
+        setStatus('ready');
+      }
+    } catch (err) {
+      console.error(err);
+      setStatus('error');
+      addLog("Erro no processamento de arquivos.");
     }
   };
 
@@ -240,6 +254,7 @@ export default function App() {
             <div className="space-y-1">
               <p className="text-sm font-medium text-white">
                 {status === 'loading-model' && "Carregando E5-Small..."}
+                {status === 'processing' && "Lendo Arquivos..."}
                 {status === 'indexing' && "Quantizando Vetores..."}
                 {status === 'ready' && "TurboQuant Ativo"}
                 {status === 'error' && "Falha Crítica"}
@@ -265,17 +280,33 @@ export default function App() {
             onClick={() => fileInputRef.current?.click()}
             className={cn(
               "group relative overflow-hidden border-2 border-dashed rounded-2xl p-8 transition-all cursor-pointer text-center",
-              isDragging ? "border-brand-500 bg-brand-500/5" : "border-slate-800 hover:border-slate-700 hover:bg-slate-900/40"
+              isDragging ? "border-brand-500 bg-brand-500/5" : "border-slate-800 hover:border-slate-700 hover:bg-slate-900/40",
+              (status === 'indexing' || status === 'processing') && "pointer-events-none opacity-50"
             )}
           >
             <input type="file" ref={fileInputRef} className="hidden" accept=".txt,.pdf" multiple onChange={(e) => handleFileUpload(e.target.files)} />
-            <div className="flex flex-col items-center gap-3">
-              <Upload className="w-8 h-8 text-slate-500 group-hover:text-brand-400 transition-colors" />
-              <div>
-                <h3 className="text-sm font-bold text-white uppercase tracking-wide">Importar Docs</h3>
-                <p className="text-[10px] text-slate-500 mt-1">PDF ou TXT (Arraste aqui)</p>
-              </div>
-            </div>
+            <AnimatePresence>
+              {(status === 'indexing' || status === 'processing') ? (
+                <motion.div 
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="flex flex-col items-center gap-3 py-2"
+                >
+                  <Loader2 className="w-8 h-8 text-brand-400 animate-spin" />
+                  <p className="text-[10px] text-brand-400 font-bold uppercase tracking-widest animate-pulse">
+                    Processando...
+                  </p>
+                </motion.div>
+              ) : (
+                <div className="flex flex-col items-center gap-3">
+                  <Upload className="w-8 h-8 text-slate-500 group-hover:text-brand-400 transition-colors" />
+                  <div>
+                    <h3 className="text-sm font-bold text-white uppercase tracking-wide">Importar Docs</h3>
+                    <p className="text-[10px] text-slate-500 mt-1">PDF ou TXT (Arraste aqui)</p>
+                  </div>
+                </div>
+              )}
+            </AnimatePresence>
           </section>
 
           {/* Stats */}

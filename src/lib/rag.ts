@@ -21,6 +21,28 @@ function l2Norm(v: Float32Array) {
   return Math.sqrt(s);
 }
 
+const STOPWORDS_PT = new Set(["o", "a", "os", "as", "um", "uma", "uns", "umas", "de", "do", "da", "dos", "das", "em", "no", "na", "nos", "nas", "por", "pelo", "pela", "pelos", "pelas", "para", "com", "que", "se", "como", "esta", "esse", "isso", "aquele", "aquilo", "este", "tem", "foi", "era", "ser", "eram", "estão", "estava", "estavam", "mais", "muito", "seu", "sua", "seus", "suas", "pode", "podem", "quem", "qual", "quais", "onde", "quando", "como", "mas", "nem", "ou", "então", "desde", "até", "após", "entre", "sobre", "sob", "sem", "cada"]);
+
+function tokenize(text: string): string[] {
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // Remove accents
+    .replace(/[^\w\s]/g, "") // Remove punctuation
+    .split(/\s+/)
+    .filter(t => t.length > 2 && !STOPWORDS_PT.has(t)); // Filter short words and stopwords
+}
+
+function lexicalScore(queryTokens: string[], docText: string): number {
+  if (queryTokens.length === 0) return 0;
+  const docTokens = new Set(tokenize(docText));
+  let matches = 0;
+  for (const token of queryTokens) {
+    if (docTokens.has(token)) matches++;
+  }
+  return matches / queryTokens.length;
+}
+
 function normalize(v: Float32Array) {
   const norm = l2Norm(v);
   const out = new Float32Array(v.length);
@@ -81,33 +103,52 @@ export class TurboQuant {
     const recon = new Float32Array(v.length);
     const { b, c } = BOOKS[4];
     
-    // Variance scaling for standard N(0,1) codebook
-    const stdFactor = Math.sqrt(v.length);
+    // Adaptive Variance scaling
+    let variance = 0;
+    for (const val of rot) variance += val * val;
+    const std = Math.sqrt(variance / v.length) || (1 / Math.sqrt(v.length));
+    const scale = 1 / std;
+
     for (let i = 0; i < v.length; i++) {
-      const scaledVal = rot[i] * stdFactor;
-      let k = 0;
-      while (k < b.length && scaledVal > b[k]) k++;
+      const scaledVal = rot[i] * scale;
+      // Binary search for index
+      let low = 0, high = b.length;
+      while (low < high) {
+        let mid = (low + high) >>> 1;
+        if (scaledVal > b[mid]) low = mid + 1;
+        else high = mid;
+      }
+      const k = Math.max(0, Math.min(b.length - 1, low));
       idx[i] = k;
-      recon[i] = c[k] / stdFactor; // Scale back
+      recon[i] = c[k] / scale; 
     }
     
-    // Stage 2: 1-bit residual quantization for unbiased IP
+    // Stage 2: 2-bit residual quantization for higher precision
     const residual = new Float32Array(v.length);
     for (let i = 0; i < v.length; i++) {
       residual[i] = rot[i] - recon[i];
     }
     
     const resNorm = l2Norm(residual);
-    // Pack 1-bit signs (1 = positive, 0 = negative)
-    const resIdxSize = Math.ceil(v.length / 8);
+    // 2-bit quantization levels: -1.2, -0.4, 0.4, 1.2
+    const resIdxSize = Math.ceil(v.length / 4);
     const resIdx = new Uint8Array(resIdxSize);
+    const resScale = resNorm / Math.sqrt(v.length);
+
     for (let i = 0; i < v.length; i++) {
-      if (residual[i] >= 0) {
-        resIdx[i >> 3] |= (1 << (i & 7));
-      }
+      const val = residual[i] / (resScale || 1e-9);
+      let bits = 0;
+      if (val < -0.8) bits = 0;      // ~ -1.2
+      else if (val < 0) bits = 1;    // ~ -0.4
+      else if (val < 0.8) bits = 2;   // ~ 0.4
+      else bits = 3;                  // ~ 1.2
+      
+      const byteIdx = i >> 2;
+      const bitShift = (i & 3) << 1;
+      resIdx[byteIdx] |= (bits << bitShift);
     }
     
-    return { idx, resIdx, norm, resNorm, dim: v.length };
+    return { idx, resIdx, norm, resNorm, dim: v.length, scale };
   }
 
   ip(query: Float32Array, qv: QVec): number {
@@ -118,9 +159,9 @@ export class TurboQuant {
     
     // MSE Component
     let dotMse = 0;
-    const stdFactor = Math.sqrt(qv.dim);
+    const scale = qv.scale;
     for (let i = 0; i < qv.dim; i++) {
-      dotMse += qRot[i] * (c[qv.idx[i]] / stdFactor);
+      dotMse += qRot[i] * (c[qv.idx[i]] / scale);
     }
     
     // Residual Component (Unbiased Correction)
@@ -130,10 +171,12 @@ export class TurboQuant {
     const resScale = resNorm / Math.sqrt(qv.dim);
 
     if (resIdx && resIdx.length > 0) {
+      const resLevels = [-1.2, -0.4, 0.4, 1.2];
       for (let i = 0; i < qv.dim; i++) {
-        const bit = (resIdx[i >> 3] >> (i & 7)) & 1;
-        const sign = bit ? 1 : -1;
-        dotRes += qRot[i] * sign;
+        const byteIdx = i >> 2;
+        const bitShift = (i & 3) << 1;
+        const bits = (resIdx[byteIdx] >> bitShift) & 3;
+        dotRes += qRot[i] * resLevels[bits];
       }
     }
     
@@ -152,15 +195,81 @@ export class IVF {
 
   train(vectors: Float32Array[]) {
     if (vectors.length === 0) return;
-    this.centroids = vectors.slice(0, Math.min(this.k, vectors.length));
-    for (let iter = 0; iter < 5; iter++) {
+    
+    // 1. Ensure vectors are normalized for Cosine Clustering
+    const normalizedVectors = vectors.map(v => normalize(v).normalized);
+    
+    // 2. K-means++ initialization
+    this.centroids = this.initializeKMeansPlusPlus(normalizedVectors);
+    
+    // 3. Training loop with convergence check
+    let prevShift = Infinity;
+    for (let iter = 0; iter < 20; iter++) {
       const groups: Float32Array[][] = Array.from({ length: this.centroids.length }, () => []);
-      for (const v of vectors) {
+      for (const v of normalizedVectors) {
         const c = this.closestCentroid(v);
         groups[c].push(v);
       }
-      this.centroids = groups.map((group, i) => this.mean(group, i));
+      
+      const nextCentroids = groups.map((group, i) => this.mean(group, i));
+      
+      // Calculate total centroid shift for convergence
+      let totalShift = 0;
+      for (let i = 0; i < this.centroids.length; i++) {
+        totalShift += this.distSq(this.centroids[i], nextCentroids[i]);
+      }
+      
+      this.centroids = nextCentroids;
+      
+      // Stop if shift is minimal or stabilized
+      if (totalShift < 1e-6 || Math.abs(prevShift - totalShift) < 1e-9) break;
+      prevShift = totalShift;
     }
+  }
+
+  private initializeKMeansPlusPlus(vectors: Float32Array[]): Float32Array[] {
+    const centroids: Float32Array[] = [];
+    const n = vectors.length;
+    
+    // Pick first centroid randomly
+    const rng = seededRandom(Date.now());
+    centroids.push(vectors[Math.floor(rng() * n)]);
+    
+    while (centroids.length < Math.min(this.k, n)) {
+      const distances = new Float64Array(n);
+      let sumSqDist = 0;
+      
+      for (let i = 0; i < n; i++) {
+        let minDistSq = Infinity;
+        for (const c of centroids) {
+          const d2 = this.distSq(vectors[i], c);
+          if (d2 < minDistSq) minDistSq = d2;
+        }
+        distances[i] = minDistSq;
+        sumSqDist += minDistSq;
+      }
+      
+      // Select next centroid with probability proportional to D(x)^2
+      let r = rng() * sumSqDist;
+      for (let i = 0; i < n; i++) {
+        r -= distances[i];
+        if (r <= 0) {
+          centroids.push(vectors[i]);
+          break;
+        }
+      }
+    }
+    
+    return centroids;
+  }
+
+  private distSq(a: Float32Array, b: Float32Array): number {
+    let d2 = 0;
+    for (let i = 0; i < a.length; i++) {
+      const diff = a[i] - b[i];
+      d2 += diff * diff;
+    }
+    return d2;
   }
 
   assign(id: string, vector: Float32Array): number {
@@ -213,7 +322,7 @@ export class IVF {
 export class RAGStore {
   private ivf: IVF;
   private quant = new TurboQuant();
-  private store = new Map<string, { qv: QVec; text: string; centroid: number; metadata?: Record<string, unknown> }>();
+  private store = new Map<string, { qv: QVec; text: string; full: Float32Array; centroid: number; metadata?: Record<string, unknown> }>();
   private dbName = 'TurboRAG_DB';
   private storeName = 'index_state';
 
@@ -228,43 +337,74 @@ export class RAGStore {
   add(id: string, text: string, emb: Float32Array, metadata?: Record<string, unknown>) {
     const centroid = this.ivf.assign(id, emb);
     const qv = this.quant.quantize(emb);
-    this.store.set(id, { qv, text, centroid, metadata });
+    this.store.set(id, { qv, text, full: emb, centroid, metadata });
   }
 
-  search(query: Float32Array, k = 3, probes = 2): Result[] {
-    // Dynamic probing: use more probes for small collections to ensure accuracy
+  search(query: Float32Array, queryStr: string, k = 3, probes = 2): Result[] {
+    // Stage 1: Fast filtering with IVF + TurboQuant
     const actualProbes = this.store.size < 50 ? this.ivf.centroids.length : probes;
     const centroidIndices = this.ivf.search(query, actualProbes);
     const candidates: string[] = [];
     for (const cIdx of centroidIndices) {
       candidates.push(...(this.ivf.lists.get(cIdx) || []));
     }
-    return candidates
+    
+    // Deduplicate candidates
+    const uniqueCandidates = Array.from(new Set(candidates));
+    
+    // Preliminary scoring with TurboQuant for Top-N candidates
+    const preliminaryTopN = uniqueCandidates
       .map((id) => {
         const item = this.store.get(id)!;
         return {
           id,
+          qScore: this.quant.ip(query, item.qv)
+        };
+      })
+      .sort((a, b) => b.qScore - a.qScore)
+      .slice(0, k * 3); // Take top N for re-ranking
+
+    const queryTokens = tokenize(queryStr);
+
+    // Stage 2: Precision re-ranking using original float32 embeddings + Lexical Boost
+    return preliminaryTopN
+      .map(({ id }) => {
+        const item = this.store.get(id)!;
+        const { normalized: qn } = normalize(query);
+        const { normalized: en } = normalize(item.full);
+        
+        const semanticScore = dot(qn, en); // Exact Cosine Similarity
+        const lScore = lexicalScore(queryTokens, item.text);
+        
+        // Hybrid Fusion: 0.7 Semantic + 0.3 Lexical
+        const hybridScore = (0.7 * semanticScore) + (0.3 * lScore);
+
+        return {
+          id,
           text: item.text,
-          score: this.quant.ip(query, item.qv),
+          score: hybridScore,
           centroid: item.centroid,
           metadata: item.metadata
         };
       })
       .sort((a, b) => b.score - a.score)
-      .filter((v, i, a) => a.findIndex(t => t.id === v.id) === i) // Unique
       .slice(0, k);
   }
 
   stats() {
     let dims = 0;
     for (const { qv } of this.store.values()) dims += qv.dim;
-    // Calculation: 4 bits/dim + 1 bit/dim + 4 bytes norm + 4 bytes resNorm
-    const f32 = dims * 4;
-    const qBytes = (dims * 5) / 8 + (this.store.size * 8); 
+    
+    // Calculation: 
+    // TurboQuant size (6 bits/dim) + float32 size (32 bits/dim)
+    const f32Original = dims * 4;
+    const qBytes = (dims * 6) / 8 + (this.store.size * 12); 
+    const totalBytes = qBytes + f32Original;
+    
     return {
       docs: this.store.size,
-      ratio: (f32 / qBytes).toFixed(1),
-      saved: Math.max(0, Math.floor(f32 - qBytes)),
+      ratio: totalBytes > 0 ? (f32Original / totalBytes).toFixed(1) : "0.0",
+      saved: Math.max(0, Math.floor(f32Original - qBytes)),
       clusters: this.ivf.centroids.length
     };
   }
