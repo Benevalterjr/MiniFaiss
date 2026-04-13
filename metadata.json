@@ -1,0 +1,6 @@
+{
+  "name": "TurboRAG: Ultra-Compressed Vector Search",
+  "description": "A browser-based RAG engine using TurboQuant 4-bit quantization and Hugging Face Transformers for efficient local vector search.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
