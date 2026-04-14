@@ -454,13 +454,22 @@ export default function App() {
                                <Database className="w-3 h-3 text-slate-600" />
                                <span className="text-[10px] font-bold text-slate-500 uppercase">Cluster {result.centroid}</span>
                              </div>
-                             <div className={cn(
-                               "flex items-center gap-1",
-                               result.score > 0.7 ? "text-emerald-400" : result.score > 0.5 ? "text-yellow-400" : "text-slate-500"
-                             )}>
-                               <ShieldCheck className="w-3 h-3" />
-                               <span className="text-[10px] font-bold uppercase">Confidence {( (Number.isNaN(result.score) ? 0 : result.score) * 100).toFixed(1)}%</span>
-                             </div>
+
+                             {/* Semantic Score */}
+                             {result.semanticScore !== undefined && result.semanticScore > 0 && (
+                               <div className={cn("flex items-center gap-1", result.semanticScore > 0.75 ? "text-emerald-400" : "text-yellow-400")}>
+                                 <Zap className="w-3 h-3" />
+                                 <span className="text-[10px] font-bold uppercase">Semântica {(result.semanticScore * 100).toFixed(1)}%</span>
+                               </div>
+                             )}
+
+                             {/* BM25 Score */}
+                             {result.bm25Score !== undefined && result.bm25Score > 0 && (
+                               <div className="flex items-center gap-1 text-fuchsia-400">
+                                 <Terminal className="w-3 h-3" />
+                                 <span className="text-[10px] font-bold uppercase">Léxico ({result.bm25Score.toFixed(1)})</span>
+                               </div>
+                             )}
                           </div>
                         </div>
                       </div>

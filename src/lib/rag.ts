@@ -57,7 +57,7 @@ function tokenize(text: string): string[] {
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^\w\s]/g, "")
+    .replace(/[^\w\s]/g, " ")
     .split(/\s+/)
     .filter(t => t.length > 2 && !STOPWORDS_PT.has(t));
 }
