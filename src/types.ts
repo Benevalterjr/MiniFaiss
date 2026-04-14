@@ -12,7 +12,7 @@ export interface Document {
   id: string;
   text: string;
   source: string;
-  type: 'txt' | 'pdf';
+  type: 'txt' | 'pdf' | 'csv';
   metadata?: Record<string, unknown>;
 }
 

@@ -20,6 +20,7 @@ import {
   FileText,
   X,
   FileSearch,
+  FileSpreadsheet,
   CheckCircle2,
   AlertTriangle,
   Sparkles
@@ -147,59 +148,80 @@ export default function App() {
         const file = files[i];
         addLog(`[${i + 1}/${files.length}] Extraindo: ${file.name}...`);
         let text = "";
-        let type: 'txt' | 'pdf' = 'txt';
+        let type: 'txt' | 'pdf' | 'csv' = 'txt';
 
         if (file.name.endsWith('.pdf')) {
           text = await extractTextFromPDF(file);
           type = 'pdf';
+        } else if (file.name.endsWith('.csv')) {
+          text = await file.text();
+          type = 'csv';
         } else if (file.name.endsWith('.txt')) {
           text = await file.text();
           type = 'txt';
         } else continue;
 
-        // Professional Chunking: target ~1000 chars per chunk
-        const targetSize = 1000;
-        const paragraphs = text.split(/\n\n+/).filter(p => p.trim().length > 0);
-        
-        paragraphs.forEach((para) => {
-          const p = para.trim();
-          if (p.length <= targetSize + 200) {
-            // Paragraph is small enough, keep as one chunk
-            if (p.length > 10) {
-              newDocs.push({
-                id: `doc-${Date.now()}-${i}-${newDocs.length}`,
-                text: p,
-                source: file.name,
-                type
-              });
+        if (type === 'csv') {
+          // Tratar CSV como linhas independentes (ou pequenos grupos) para melhor busca semântica em tabelas
+          const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+          if (lines.length > 0) {
+            const header = lines[0]; // Captura o cabeçalho para dar contexto a cada linha
+            for (let j = 1; j < lines.length; j++) {
+              if (lines[j].length > 5) {
+                 newDocs.push({
+                   id: `doc-${Date.now()}-${i}-${newDocs.length}`,
+                   text: `${header}\n${lines[j]}`,
+                   source: file.name,
+                   type
+                 });
+              }
             }
-          } else {
-            // Paragraph is too large, split by sentences or blocks
-            const sentences = p.split(/([.!?]\s+)/);
-            let currentChunk = "";
-            
-            for (const part of sentences) {
-              if ((currentChunk + part).length > targetSize && currentChunk.length > 0) {
+          }
+        } else {
+          // Professional Chunking for txt/pdf: target ~1000 chars per chunk
+          const targetSize = 1000;
+          const paragraphs = text.split(/\n\n+/).filter(p => p.trim().length > 0);
+          
+          paragraphs.forEach((para) => {
+            const p = para.trim();
+            if (p.length <= targetSize + 200) {
+              // Paragraph is small enough, keep as one chunk
+              if (p.length > 10) {
+                newDocs.push({
+                  id: `doc-${Date.now()}-${i}-${newDocs.length}`,
+                  text: p,
+                  source: file.name,
+                  type
+                });
+              }
+            } else {
+              // Paragraph is too large, split by sentences or blocks
+              const sentences = p.split(/([.!?]\s+)/);
+              let currentChunk = "";
+              
+              for (const part of sentences) {
+                if ((currentChunk + part).length > targetSize && currentChunk.length > 0) {
+                  newDocs.push({
+                    id: `doc-${Date.now()}-${i}-${newDocs.length}`,
+                    text: currentChunk.trim(),
+                    source: file.name,
+                    type
+                  });
+                  currentChunk = "";
+                }
+                currentChunk += part;
+              }
+              if (currentChunk.trim().length > 10) {
                 newDocs.push({
                   id: `doc-${Date.now()}-${i}-${newDocs.length}`,
                   text: currentChunk.trim(),
                   source: file.name,
                   type
                 });
-                currentChunk = "";
               }
-              currentChunk += part;
             }
-            if (currentChunk.trim().length > 10) {
-              newDocs.push({
-                id: `doc-${Date.now()}-${i}-${newDocs.length}`,
-                text: currentChunk.trim(),
-                source: file.name,
-                type
-              });
-            }
-          }
-        });
+          });
+        }
         addLog(`✓ ${file.name} fragmentado.`);
       }
 
@@ -319,7 +341,7 @@ export default function App() {
               (status === 'indexing' || status === 'processing') && "pointer-events-none opacity-50"
             )}
           >
-            <input type="file" ref={fileInputRef} className="hidden" accept=".txt,.pdf" multiple onChange={(e) => handleFileUpload(e.target.files)} />
+            <input type="file" ref={fileInputRef} className="hidden" accept=".txt,.pdf,.csv" multiple onChange={(e) => handleFileUpload(e.target.files)} />
             <AnimatePresence>
               {(status === 'indexing' || status === 'processing') ? (
                 <motion.div 
@@ -337,7 +359,7 @@ export default function App() {
                   <Upload className="w-8 h-8 text-gray-400 group-hover:text-brand-500 transition-colors" />
                   <div>
                     <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide">Importar Docs</h3>
-                    <p className="text-[10px] text-gray-500 mt-1">PDF ou TXT (Arraste aqui)</p>
+                    <p className="text-[10px] text-gray-500 mt-1">PDF, TXT ou CSV (Arraste aqui)</p>
                   </div>
                 </div>
               )}
@@ -661,6 +683,7 @@ export default function App() {
                       </div>
                       <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                          {result.metadata?.type === 'pdf' && <FileSearch className="w-4 h-4 text-gray-400" />}
+                         {result.metadata?.type === 'csv' && <FileSpreadsheet className="w-4 h-4 text-gray-400" />}
                       </div>
                     </div>
                     <p className="text-gray-700 text-sm leading-relaxed font-medium break-words whitespace-pre-wrap">
@@ -706,6 +729,8 @@ export default function App() {
                   <div className="flex items-center gap-2.5 overflow-hidden">
                     {documents.find(d => d.source === source)?.type === 'pdf' ? 
                       <FileSearch className="w-3.5 h-3.5 text-red-400" /> : 
+                     documents.find(d => d.source === source)?.type === 'csv' ?
+                      <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500" /> :
                       <FileText className="w-3.5 h-3.5 text-brand-500" />
                     }
                     <span className="text-[11px] font-medium text-gray-700 truncate">{source}</span>
