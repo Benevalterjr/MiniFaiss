@@ -1,33 +1,25 @@
 import { GoogleGenAI } from "@google/genai";
 
 /**
- * Modelos com quota separada na free tier.
- * Se o primeiro esgotar, tentamos o fallback automaticamente.
+ * Cadeia de modelos com fallback automático.
+ * Gemini 2.5 Flash → Gemini 2.0 Flash → Groq (Llama 3.3 70B)
  */
-const MODEL_CHAIN = ["gemini-2.5-flash", "gemini-2.0-flash"] as const;
 
-/**
- * Serviço que encapsula a interação com o Google AI via SDK.
- * Mantemos separado da UI e focado estritamente no domínio de LLM.
- *
- * Estratégia de resiliência:
- * 1. Tenta o modelo primário (gemini-2.5-flash).
- * 2. Se receber 429 (RESOURCE_EXHAUSTED), faz fallback para gemini-2.0-flash.
- * 3. Se ambos falharem, propaga o erro para o hook tratar na UI.
- */
-export async function* streamRAGAnswer(
-  query: string,
-  contextTexts: string[],
-  apiKey: string
-): AsyncGenerator<string, void, unknown> {
-  if (!apiKey || apiKey.trim() === "") {
-    throw new Error("Chave de API do Gemini ausente ou inválida.");
-  }
+type ProviderConfig = {
+  provider: 'gemini' | 'groq';
+  model: string;
+};
 
-  const ai = new GoogleGenAI({ apiKey });
+const MODEL_CHAIN: ProviderConfig[] = [
+  { provider: 'gemini', model: 'gemini-2.5-flash' },
+  { provider: 'gemini', model: 'gemini-2.0-flash' },
+  { provider: 'groq',   model: 'llama-3.3-70b-versatile' },
+];
+
+function buildSystemPrompt(contextTexts: string[], query: string): string {
   const contextBlock = contextTexts.map((c, i) => `[Referência ${i + 1}]:\n${c}`).join('\n\n---\n\n');
 
-  const prompt = `Você é o MiniFaiss AI, um assistente RAG altamente preciso.
+  return `Você é o MiniFaiss AI, um assistente RAG altamente preciso.
 SUAS INSTRUÇÕES:
 1. Baseie sua resposta EXCLUSIVAMENTE nas referências fornecidas no contexto abaixo.
 2. Não utilize conhecimento prévio ou externo.
@@ -40,50 +32,139 @@ ${contextBlock}
 ====================
 
 PERGUNTA: ${query}`;
+}
 
+/** Stream via Google GenAI SDK */
+async function* streamGemini(
+  apiKey: string, model: string, prompt: string
+): AsyncGenerator<string, void, unknown> {
+  const ai = new GoogleGenAI({ apiKey });
+  const responseStream = await ai.models.generateContentStream({
+    model,
+    contents: prompt,
+    config: { temperature: 0.1 }
+  });
+
+  for await (const chunk of responseStream) {
+    if (chunk.text) yield chunk.text;
+  }
+}
+
+/** Stream via Groq REST API (OpenAI-compatible) */
+async function* streamGroq(
+  apiKey: string, model: string, prompt: string
+): AsyncGenerator<string, void, unknown> {
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: "system", content: "Você é o MiniFaiss AI, um assistente RAG preciso. Responda exclusivamente com base no contexto fornecido pelo usuário. Use Markdown." },
+        { role: "user", content: prompt }
+      ],
+      temperature: 0.1,
+      stream: true,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Groq ${response.status}: ${errorBody}`);
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("Groq: stream indisponível.");
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("data: ") || trimmed === "data: [DONE]") continue;
+
+      try {
+        const json = JSON.parse(trimmed.slice(6));
+        const delta = json.choices?.[0]?.delta?.content;
+        if (delta) yield delta;
+      } catch {
+        // Ignore malformed chunks
+      }
+    }
+  }
+}
+
+function isQuotaError(error: any): boolean {
+  const msg = error?.message || "";
+  return msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED") || error?.status === 429;
+}
+
+/**
+ * Serviço principal de streaming RAG com fallback automático.
+ *
+ * @param geminiApiKey - Chave do Google AI Studio
+ * @param groqApiKey - Chave do Groq (opcional, usado como último fallback)
+ */
+export async function* streamRAGAnswer(
+  query: string,
+  contextTexts: string[],
+  geminiApiKey: string,
+  groqApiKey?: string,
+): AsyncGenerator<string, void, unknown> {
+  if (!geminiApiKey && !groqApiKey) {
+    throw new Error("Nenhuma chave de API configurada. Insira uma chave Gemini ou Groq.");
+  }
+
+  const prompt = buildSystemPrompt(contextTexts, query);
   let lastError: Error | null = null;
 
-  for (const model of MODEL_CHAIN) {
+  for (const config of MODEL_CHAIN) {
+    // Pular Gemini se não tiver key
+    if (config.provider === 'gemini' && !geminiApiKey) continue;
+    // Pular Groq se não tiver key
+    if (config.provider === 'groq' && !groqApiKey) continue;
+
     try {
-      console.log(`[GeminiService] Tentando modelo: ${model}`);
+      console.log(`[LLMService] Tentando: ${config.provider}/${config.model}`);
 
-      const responseStream = await ai.models.generateContentStream({
-        model,
-        contents: prompt,
-        config: {
-          temperature: 0.1,
-        }
-      });
+      const stream = config.provider === 'gemini'
+        ? streamGemini(geminiApiKey, config.model, prompt)
+        : streamGroq(groqApiKey!, config.model, prompt);
 
-      for await (const chunk of responseStream) {
-        if (chunk.text) {
-          yield chunk.text;
-        }
+      for await (const chunk of stream) {
+        yield chunk;
       }
 
-      return; // Sucesso — encerra o generator
+      return; // Sucesso
     } catch (error: any) {
-      const isQuotaError = error?.message?.includes("429") ||
-                           error?.message?.includes("RESOURCE_EXHAUSTED") ||
-                           error?.status === 429;
+      lastError = error;
 
-      if (isQuotaError && model !== MODEL_CHAIN[MODEL_CHAIN.length - 1]) {
-        console.warn(`[GeminiService] Quota excedida para ${model}. Tentando próximo modelo...`);
-        lastError = error;
-        continue; // Tenta o próximo modelo
+      if (isQuotaError(error)) {
+        console.warn(`[LLMService] Quota excedida para ${config.provider}/${config.model}. Tentando próximo...`);
+        continue;
       }
 
-      // Erro não-recuperável ou último modelo da cadeia
-      console.error(`[GeminiService] Erro no modelo ${model}:`, error);
-      lastError = error;
-      break;
+      // Erro não-recuperável — tenta próximo modelo mesmo assim
+      console.error(`[LLMService] Erro em ${config.provider}/${config.model}:`, error);
+      continue;
     }
   }
 
-  // Extrair mensagem amigável do erro
+  // Todos falharam
   const rawMsg = lastError?.message || "Falha de comunicação com a IA.";
   if (rawMsg.includes("429") || rawMsg.includes("RESOURCE_EXHAUSTED")) {
-    throw new Error("Limite de requisições gratuitas atingido. Aguarde ~1 minuto ou verifique o billing da sua API Key no Google AI Studio.");
+    throw new Error("Limite de requisições atingido em todos os provedores. Aguarde alguns minutos.");
   }
 
   throw new Error(rawMsg);

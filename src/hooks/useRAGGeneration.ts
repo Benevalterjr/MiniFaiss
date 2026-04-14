@@ -10,7 +10,7 @@ export function useRAGGeneration() {
   const [error, setError] = useState<string | null>(null);
   const isCanceledRef = useRef(false);
 
-  const generateAnswer = useCallback(async (query: string, results: Result[], apiKey: string) => {
+  const generateAnswer = useCallback(async (query: string, results: Result[], geminiApiKey: string, groqApiKey?: string) => {
     // Reset state
     setState('generating');
     setAnswer("");
@@ -25,7 +25,7 @@ export function useRAGGeneration() {
 
     try {
       const texts = results.map(r => r.text);
-      const stream = streamRAGAnswer(query, texts, apiKey);
+      const stream = streamRAGAnswer(query, texts, geminiApiKey, groqApiKey);
 
       for await (const chunk of stream) {
         if (isCanceledRef.current) break;
