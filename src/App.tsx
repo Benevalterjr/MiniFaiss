@@ -1,4 +1,6 @@
-import { useState, useEffect, useRef, useMemo, FormEvent } from 'react';
+import { useState, useEffect, useRef, FormEvent } from 'react';
+import ReactMarkdown from 'react-markdown';
+import { useRAGGeneration } from './hooks/useRAGGeneration';
 import { wrap, proxy } from "comlink";
 import { motion, AnimatePresence } from "motion/react";
 import { 
@@ -18,7 +20,8 @@ import {
   X,
   FileSearch,
   CheckCircle2,
-  AlertTriangle
+  AlertTriangle,
+  Sparkles
 } from "lucide-react";
 import { cn } from "./lib/utils";
 import { extractTextFromPDF } from "./lib/pdf";
@@ -50,6 +53,13 @@ export default function App() {
     clusters: 0 
   });
   const [showWipeConfirm, setShowWipeConfirm] = useState(false);
+  const [geminiApiKey, setGeminiApiKey] = useState(() => localStorage.getItem("gemini_api_key") || (import.meta as any).env?.VITE_GEMINI_API_KEY || "");
+  
+  const rag = useRAGGeneration();
+  
+  useEffect(() => {
+    localStorage.setItem("gemini_api_key", geminiApiKey);
+  }, [geminiApiKey]);
   
   const workerApiRef = useRef<Remote<TurboRAGWorker> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -207,6 +217,10 @@ export default function App() {
     try {
       const searchResults = await workerApiRef.current.search(query, 4, 3);
       setResults(searchResults as Result[]);
+      
+      if (geminiApiKey) {
+        rag.generateAnswer(query, searchResults as Result[], geminiApiKey);
+      }
     } catch (err) {
       console.error(err);
       addLog("Erro na busca.");
@@ -395,6 +409,21 @@ export default function App() {
               )}
             </AnimatePresence>
           </section>
+
+          {/* Gemini API Key */}
+          <section className="glass-card p-5 space-y-4">
+            <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+              <Sparkles className="w-3.5 h-3.5" /> Geração RAG (Gemini)
+            </h2>
+            <input 
+              type="password"
+              value={geminiApiKey}
+              onChange={e => setGeminiApiKey(e.target.value)}
+              placeholder="Cole sua Gemini API Key..."
+              className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-300 focus:border-brand-500 outline-none transition-colors"
+            />
+            <p className="text-[9px] text-slate-500 leading-tight">Salvo localmente no seu navegador para manter a privacidade.</p>
+          </section>
         </aside>
 
         {/* Middle Column: Search & Results */}
@@ -427,6 +456,44 @@ export default function App() {
             </div>
           </form>
 
+          {/* Gemini RAG Answer */}
+          <AnimatePresence>
+            {rag.state !== 'idle' && (
+              <motion.div
+                key="rag-answer"
+                initial={{ opacity: 0, y: -20, height: 0 }}
+                animate={{ opacity: 1, y: 0, height: 'auto' }}
+                exit={{ opacity: 0, y: -20, height: 0 }}
+                className="glass-card overflow-hidden border-brand-500/30 shadow-[0_0_30px_rgba(139,92,246,0.1)] relative"
+              >
+                <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-brand-400 to-indigo-500" />
+                <div className="p-6 pl-8">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                      <Sparkles className="w-5 h-5 text-brand-400" /> MiniFaiss AI
+                    </h3>
+                    {rag.state === 'generating' && (
+                      <span className="flex items-center gap-2 text-[10px] text-brand-400 font-mono uppercase">
+                        <span className="w-2 h-2 rounded-full bg-brand-400 animate-pulse" /> Gerando resposta...
+                      </span>
+                    )}
+                  </div>
+                  
+                  <div className="text-sm text-slate-200 leading-relaxed max-w-none [&>p]:mb-3 [&>ul]:list-disc [&>ul]:ml-4 [&>ul]:mb-3 [&>strong]:text-brand-300">
+                    <ReactMarkdown>{rag.answer}</ReactMarkdown>
+                  </div>
+                  
+                  {rag.state === 'error' && (
+                    <div className="mt-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-xs flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4" />
+                      {rag.error}
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {/* Results */}
           <div className="space-y-6">
             <AnimatePresence mode="popLayout">
@@ -447,7 +514,7 @@ export default function App() {
                         </div>
                         <div>
                           <p className="text-[10px] font-mono text-slate-500 uppercase tracking-widest">
-                            {result.metadata?.source || "Documento"}
+                            {String(result.metadata?.source || "Documento")}
                           </p>
                           <div className="flex items-center gap-3 mt-1">
                              <div className="flex items-center gap-1">
