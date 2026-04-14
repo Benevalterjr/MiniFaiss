@@ -6,4 +6,5 @@ coverage/
 *.log
 .env*
 !.env.example
+.agent/
 .benchmark_cache/
