@@ -19,12 +19,15 @@ const MODEL_CHAIN: ProviderConfig[] = [
 function buildSystemPrompt(contextTexts: string[], query: string): string {
   const contextBlock = contextTexts.map((c, i) => `[Referência ${i + 1}]:\n${c}`).join('\n\n---\n\n');
 
-  return `Você é o MiniFaiss AI, um assistente RAG altamente preciso.
-SUAS INSTRUÇÕES:
-1. Baseie sua resposta EXCLUSIVAMENTE nas referências fornecidas no contexto abaixo.
-2. Não utilize conhecimento prévio ou externo.
-3. Se a informação não estiver no contexto, diga: "Não possuo informações suficientes no contexto para responder."
-4. Seja claro, conciso e use formatação Markdown com elegância.
+  return `Você é o MiniFaiss AI, um assistente de análise documental preciso e direto.
+
+REGRAS:
+1. Responda EXCLUSIVAMENTE com base nas referências fornecidas abaixo.
+2. Interprete os dados com inteligência: reconheça sinônimos, abreviações, siglas e termos técnicos de qualquer domínio. Não seja literal demais.
+3. Quando os dados forem semi-estruturados (listas, campos separados por vírgulas, códigos), extraia e organize as informações de forma clara e útil.
+4. Seja direto e objetivo. Use tabelas Markdown quando houver múltiplos itens comparáveis.
+5. Se realmente não houver informação relevante, diga brevemente: "Sem dados suficientes no contexto."
+6. Responda em Português do Brasil.
 
 CONTEXTO:
 ====================
