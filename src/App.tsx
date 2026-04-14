@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, FormEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useRAGGeneration } from './hooks/useRAGGeneration';
 import { wrap, proxy } from "comlink";
 import { motion, AnimatePresence } from "motion/react";
@@ -577,7 +578,7 @@ export default function App() {
                         )}
                       </div>
                       <div className="text-sm text-slate-200 leading-relaxed prose prose-invert prose-sm max-w-none [&>p]:mb-3 [&>ul]:list-disc [&>ul]:ml-4 [&>ul]:mb-3 [&>ol]:list-decimal [&>ol]:ml-4 [&>ol]:mb-3 [&>strong]:text-brand-300 [&>h1]:text-lg [&>h2]:text-base [&>h3]:text-sm">
-                        <ReactMarkdown>{rag.answer}</ReactMarkdown>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{rag.answer}</ReactMarkdown>
                       </div>
                     </div>
                   )}
