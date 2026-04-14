@@ -485,37 +485,93 @@ export default function App() {
             </div>
           </form>
 
-          {/* Gemini RAG Answer */}
+          {/* Orama-style Chat Answer */}
           <AnimatePresence>
             {rag.state !== 'idle' && (
               <motion.div
                 key="rag-answer"
-                initial={{ opacity: 0, y: -20, height: 0 }}
-                animate={{ opacity: 1, y: 0, height: 'auto' }}
-                exit={{ opacity: 0, y: -20, height: 0 }}
-                className="glass-card overflow-hidden border-brand-500/30 shadow-[0_0_30px_rgba(139,92,246,0.1)] relative"
+                initial={{ opacity: 0, y: -20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="glass-card overflow-hidden relative"
               >
-                <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-brand-400 to-indigo-500" />
-                <div className="p-6 pl-8">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                      <Sparkles className="w-5 h-5 text-brand-400" /> MiniFaiss AI
-                    </h3>
-                    {rag.state === 'generating' && (
-                      <span className="flex items-center gap-2 text-[10px] text-brand-400 font-mono uppercase">
-                        <span className="w-2 h-2 rounded-full bg-brand-400 animate-pulse" /> Gerando resposta...
-                      </span>
-                    )}
+                <div className="p-6 space-y-4 max-h-[500px] overflow-y-auto custom-scrollbar">
+                  {/* User Prompt Bubble */}
+                  <div className="flex justify-end">
+                    <div className="max-w-[75%] px-4 py-3 bg-gradient-to-r from-brand-500/20 to-indigo-500/20 border border-brand-500/30 rounded-2xl rounded-br-md">
+                      <p className="text-sm text-slate-200 font-medium">{query}</p>
+                    </div>
                   </div>
-                  
-                  <div className="text-sm text-slate-200 leading-relaxed max-w-none [&>p]:mb-3 [&>ul]:list-disc [&>ul]:ml-4 [&>ul]:mb-3 [&>strong]:text-brand-300">
-                    <ReactMarkdown>{rag.answer}</ReactMarkdown>
-                  </div>
-                  
+
+                  {/* Skeleton Loader */}
+                  {rag.state === 'generating' && !rag.answer && (
+                    <div className="animate-pulse space-y-3 py-2">
+                      <div className="h-3 bg-slate-700/50 rounded w-3/4" />
+                      <div className="h-3 bg-slate-700/50 rounded w-1/2" />
+                      <div className="h-3 bg-slate-700/50 rounded w-5/6" />
+                    </div>
+                  )}
+
+                  {/* Sources Strip (horizontal scrolling) */}
+                  {results.length > 0 && (
+                    <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar">
+                      {results.slice(0, 4).map((r, i) => (
+                        <div
+                          key={r.id}
+                          className="flex-shrink-0 inline-flex items-center gap-2 bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-2 hover:bg-slate-700/60 transition-colors max-w-[200px]"
+                        >
+                          <div className={cn(
+                            "w-2 h-2 rounded-full shrink-0",
+                            i === 0 ? "bg-brand-400" : i === 1 ? "bg-emerald-400" : i === 2 ? "bg-amber-400" : "bg-fuchsia-400"
+                          )} />
+                          <div className="flex flex-col min-w-0">
+                            <span className="text-[10px] font-semibold text-slate-300 truncate">{String(r.metadata?.source || 'Documento')}</span>
+                            <span className="text-[9px] text-slate-500 truncate">{r.text.substring(0, 40)}...</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* AI Response */}
+                  {rag.answer && (
+                    <div className="p-4 bg-slate-800/40 rounded-xl">
+                      <div className="flex items-center gap-2 mb-3">
+                        <Sparkles className="w-4 h-4 text-brand-400" />
+                        <span className="text-[11px] font-bold text-brand-400 uppercase tracking-wider">MiniFaiss AI</span>
+                        {rag.state === 'generating' && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-brand-400 animate-pulse" />
+                        )}
+                      </div>
+                      <div className="text-sm text-slate-200 leading-relaxed prose prose-invert prose-sm max-w-none [&>p]:mb-3 [&>ul]:list-disc [&>ul]:ml-4 [&>ul]:mb-3 [&>ol]:list-decimal [&>ol]:ml-4 [&>ol]:mb-3 [&>strong]:text-brand-300 [&>h1]:text-lg [&>h2]:text-base [&>h3]:text-sm">
+                        <ReactMarkdown>{rag.answer}</ReactMarkdown>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Error */}
                   {rag.state === 'error' && (
-                    <div className="mt-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-xs flex items-center gap-2">
+                    <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-xs flex items-center gap-2">
                       <AlertTriangle className="w-4 h-4" />
                       {rag.error}
+                    </div>
+                  )}
+
+                  {/* Actions (Orama-style) */}
+                  {rag.answer && rag.state === 'success' && (
+                    <div className="flex items-center gap-3 pt-2 border-t border-slate-800/50">
+                      <button
+                        onClick={() => navigator.clipboard.writeText(rag.answer)}
+                        className="text-[10px] text-slate-500 hover:text-brand-400 transition-colors flex items-center gap-1 uppercase tracking-wider font-bold"
+                      >
+                        <ArrowRight className="w-3 h-3" /> Copiar
+                      </button>
+                      <button
+                        onClick={() => rag.reset()}
+                        className="text-[10px] text-slate-500 hover:text-red-400 transition-colors flex items-center gap-1 uppercase tracking-wider font-bold"
+                      >
+                        <RefreshCw className="w-3 h-3" /> Limpar
+                      </button>
                     </div>
                   )}
                 </div>
