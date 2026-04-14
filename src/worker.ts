@@ -68,7 +68,7 @@ export class TurboRAGWorker {
 
   async search(query: string, k = 3, probes = 2) {
     const qEmb = await this.embed(`query: ${query}`);
-    return this.store.search(qEmb, query, k, probes);
+    return this.store.search(qEmb, query, { k, probes });
   }
 
   async getStats() {

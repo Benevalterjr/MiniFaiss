@@ -41,7 +41,14 @@ export default function App() {
   const [logs, setLogs] = useState<string[]>([]);
   const [documents, setDocuments] = useState<Document[]>(INITIAL_DOCS);
   const [isDragging, setIsDragging] = useState(false);
-  const [stats, setStats] = useState<EngineStats>({ docs: 0, ratio: "0", saved: 0, clusters: 0 });
+  const [stats, setStats] = useState<EngineStats>({ 
+    docs: 0, 
+    dimensions: 0,
+    memoryMB: "0.00",
+    ratio: "0.0x", 
+    saved: 0, 
+    clusters: 0 
+  });
   const [showWipeConfirm, setShowWipeConfirm] = useState(false);
   
   const workerApiRef = useRef<Remote<TurboRAGWorker> | null>(null);
@@ -320,12 +327,12 @@ export default function App() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1">
-                <div className="text-2xl font-bold text-white">{stats.ratio}×</div>
+                <div className="text-2xl font-bold text-white">{stats.ratio}</div>
                 <div className="text-[9px] text-slate-500 uppercase font-bold tracking-tighter">Compressão</div>
               </div>
               <div className="space-y-1 text-right">
-                <div className="text-2xl font-bold text-emerald-400">3.5<span className="text-[10px] ml-0.5">bit</span></div>
-                <div className="text-[9px] text-slate-500 uppercase font-bold tracking-tighter">Bitrate Eficaz</div>
+                <div className="text-2xl font-bold text-emerald-400">{stats.memoryMB}<span className="text-[10px] ml-0.5">MB</span></div>
+                <div className="text-[9px] text-slate-500 uppercase font-bold tracking-tighter">Memória Alocada</div>
               </div>
             </div>
 

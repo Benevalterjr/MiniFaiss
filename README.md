@@ -18,10 +18,11 @@ Optimized for **Brazilian Portuguese (PT-BR)**, MiniFaiss enables privacy-first,
 ## ✨ Key Features
 
 - **TurboQuant-prod Engine**: 4-bit MSE quantization with 1-bit residual correction for unbiased inner product estimation.
-- **PT-BR Optimized**: Powered by `multilingual-e5-small` for superior Portuguese retrieval.
+- **Hybrid Search (BM25 + Semantic)**: Dual retrieval pipeline combining sub-linear IVF spatial clustering with an Okapi TF-IDF Inverted Index, merged via Reciprocal Rank Fusion (RRF).
+- **PT-BR Optimized**: Light Stemming optimized for Portuguese and powered by `multilingual-e5-small`.
 - **Web Worker Architecture**: Offloads embedding and index training to background threads ensuring 60fps UI performance.
 - **Format Support**: Native extraction and chunking for **PDF** and **TXT** files.
-- **Local Persistence**: Automatically saves and loads your index from **IndexedDB**.
+- **Local Persistence**: Automatically saves and loads your semantic + lexical indices from **IndexedDB**.
 - **Real-time Metrics**: Visualization of compression ratios, bitrate, and search confidence.
 - **Premium UI**: Modern dark-mode dashboard with advanced glassmorphism aesthetics.
 
