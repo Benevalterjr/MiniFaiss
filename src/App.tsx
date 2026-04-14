@@ -477,7 +477,7 @@ export default function App() {
                          {result.metadata?.type === 'pdf' && <FileSearch className="w-4 h-4 text-slate-600" />}
                       </div>
                     </div>
-                    <p className="text-slate-100 text-sm leading-relaxed font-medium">
+                    <p className="text-slate-100 text-sm leading-relaxed font-medium break-words whitespace-pre-wrap">
                       {result.text}
                     </p>
                   </motion.div>
