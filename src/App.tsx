@@ -53,12 +53,16 @@ export default function App() {
     clusters: 0 
   });
   const [showWipeConfirm, setShowWipeConfirm] = useState(false);
-  const [geminiApiKey, setGeminiApiKey] = useState(() => localStorage.getItem("gemini_api_key") || (import.meta as any).env?.VITE_GEMINI_API_KEY || "");
+  const [geminiApiKey, setGeminiApiKey] = useState(() => sessionStorage.getItem("gemini_api_key") || "");
   
   const rag = useRAGGeneration();
   
   useEffect(() => {
-    localStorage.setItem("gemini_api_key", geminiApiKey);
+    if (geminiApiKey) {
+      sessionStorage.setItem("gemini_api_key", geminiApiKey);
+    } else {
+      sessionStorage.removeItem("gemini_api_key");
+    }
   }, [geminiApiKey]);
   
   const workerApiRef = useRef<Remote<TurboRAGWorker> | null>(null);
@@ -412,17 +416,42 @@ export default function App() {
 
           {/* Gemini API Key */}
           <section className="glass-card p-5 space-y-4">
-            <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-widest flex items-center gap-2">
-              <Sparkles className="w-3.5 h-3.5" /> Geração RAG (Gemini)
-            </h2>
-            <input 
-              type="password"
-              value={geminiApiKey}
-              onChange={e => setGeminiApiKey(e.target.value)}
-              placeholder="Cole sua Gemini API Key..."
-              className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-300 focus:border-brand-500 outline-none transition-colors"
-            />
-            <p className="text-[9px] text-slate-500 leading-tight">Salvo localmente no seu navegador para manter a privacidade.</p>
+            <div className="flex items-center justify-between">
+              <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                <Sparkles className="w-3.5 h-3.5" /> Geração RAG
+              </h2>
+              {geminiApiKey ? (
+                <span className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider text-emerald-400">
+                  <ShieldCheck className="w-3 h-3" /> Conectado
+                </span>
+              ) : (
+                <span className="text-[9px] font-bold uppercase tracking-wider text-slate-600">Desconectado</span>
+              )}
+            </div>
+            <div className="relative">
+              <input 
+                type="password"
+                value={geminiApiKey}
+                onChange={e => setGeminiApiKey(e.target.value)}
+                placeholder="Cole sua Gemini API Key..."
+                className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 pr-8 text-xs text-slate-300 focus:border-brand-500 outline-none transition-colors"
+              />
+              {geminiApiKey && (
+                <button
+                  onClick={() => setGeminiApiKey("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-600 hover:text-red-400 transition-colors"
+                  title="Limpar chave da sessão"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+            <div className="flex items-start gap-2 p-2.5 bg-slate-900/30 rounded-lg border border-slate-800/50">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-500/70 mt-0.5 shrink-0" />
+              <p className="text-[9px] text-slate-500 leading-relaxed">
+                <strong className="text-slate-400">BYOK (Bring Your Own Key)</strong> — Sua chave é armazenada apenas em <code className="text-brand-400/80">sessionStorage</code> e apagada automaticamente ao fechar a aba. Nunca é enviada a servidores externos.
+              </p>
+            </div>
           </section>
         </aside>
 
