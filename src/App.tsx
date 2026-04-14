@@ -569,6 +569,9 @@ export default function App() {
                       <div className="flex items-center gap-2 mb-3">
                         <Sparkles className="w-4 h-4 text-brand-400" />
                         <span className="text-[11px] font-bold text-brand-400 uppercase tracking-wider">MiniFaiss AI</span>
+                        {rag.activeModel && (
+                          <span className="text-[9px] font-mono text-slate-500 bg-slate-800/60 px-1.5 py-0.5 rounded">{rag.activeModel}</span>
+                        )}
                         {rag.state === 'generating' && (
                           <span className="w-1.5 h-1.5 rounded-full bg-brand-400 animate-pulse" />
                         )}

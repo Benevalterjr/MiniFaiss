@@ -115,12 +115,14 @@ function isQuotaError(error: any): boolean {
  *
  * @param geminiApiKey - Chave do Google AI Studio
  * @param groqApiKey - Chave do Groq (opcional, usado como último fallback)
+ * @param onModelSelected - Callback chamado quando um modelo é selecionado
  */
 export async function* streamRAGAnswer(
   query: string,
   contextTexts: string[],
   geminiApiKey: string,
   groqApiKey?: string,
+  onModelSelected?: (model: string) => void,
 ): AsyncGenerator<string, void, unknown> {
   if (!geminiApiKey && !groqApiKey) {
     throw new Error("Nenhuma chave de API configurada. Insira uma chave Gemini ou Groq.");
@@ -137,6 +139,7 @@ export async function* streamRAGAnswer(
 
     try {
       console.log(`[LLMService] Tentando: ${config.provider}/${config.model}`);
+      onModelSelected?.(`${config.provider}/${config.model}`);
 
       const stream = config.provider === 'gemini'
         ? streamGemini(geminiApiKey, config.model, prompt)

@@ -8,13 +8,14 @@ export function useRAGGeneration() {
   const [state, setState] = useState<RAGGenerationState>('idle');
   const [answer, setAnswer] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [activeModel, setActiveModel] = useState<string | null>(null);
   const isCanceledRef = useRef(false);
 
   const generateAnswer = useCallback(async (query: string, results: Result[], geminiApiKey: string, groqApiKey?: string) => {
-    // Reset state
     setState('generating');
     setAnswer("");
     setError(null);
+    setActiveModel(null);
     isCanceledRef.current = false;
 
     if (results.length === 0) {
@@ -25,7 +26,9 @@ export function useRAGGeneration() {
 
     try {
       const texts = results.map(r => r.text);
-      const stream = streamRAGAnswer(query, texts, geminiApiKey, groqApiKey);
+      const stream = streamRAGAnswer(query, texts, geminiApiKey, groqApiKey, (model) => {
+        setActiveModel(model);
+      });
 
       for await (const chunk of stream) {
         if (isCanceledRef.current) break;
@@ -52,12 +55,14 @@ export function useRAGGeneration() {
     setState('idle');
     setAnswer("");
     setError(null);
+    setActiveModel(null);
   }, []);
 
   return {
     state,
     answer,
     error,
+    activeModel,
     generateAnswer,
     cancelGeneration,
     reset
