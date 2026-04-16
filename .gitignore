@@ -8,3 +8,5 @@ coverage/
 !.env.example
 .agent/
 .benchmark_cache/
+
+ANALISE_COMPLETA.md
