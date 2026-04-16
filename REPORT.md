@@ -293,3 +293,92 @@ A métrica de "Recall@10" baseada exclusivamente em embeddings (a nossa *ground 
 - Inner Product TurboQuant: MSE quantizer (b-1 bits) + 1-bit QJL no residual → **unbiased**
 - IP distortion: `D_prod ≈ 0.047/d` para b=4
 - Centroids exatos para b=4 (16 níveis): `{±0.1284, ±0.3881, ±0.6568, ±0.9423, ±1.2562, ±1.6180, ±2.0690, ±2.7326} * 1/√d`
+
+---
+
+## 9. Execução de Benchmarks (Sessão 2026-04-15)
+
+### Comandos executados
+1. `npm install --ignore-scripts`
+2. `npx tsx benchmarks/recall_benchmark.ts`
+3. `npx tsx benchmarks/e5_benchmark.ts`
+4. `npx tsx benchmarks/hf_benchmark.ts`
+
+### Resultado: `recall_benchmark.ts` (executado com sucesso)
+- TurboQuant Recall@10: **52.20%**
+- Spearman Rank Correlation: **0.8915**
+- IVF Probes=8: **Recall@10=32.20%** | **9.46 ms/query**
+- IVF Probes=16: **Recall@10=42.60%** | **14.72 ms/query**
+- IVF Probes=32: **Recall@10=50.00%** | **25.42 ms/query**
+- Engine Stats: docs=2000, dimensions=768000, memoryMB=0.50, ratio=5.8x, saved=2544000, clusters=32
+
+### Resultado: `e5_benchmark.ts` (bloqueado por rede)
+- A execução iniciou corretamente, mas falhou ao carregar o modelo `Xenova/multilingual-e5-small`.
+- Erro observado: `TypeError: fetch failed` com causa `ENETUNREACH`.
+- Impacto: sem conectividade para download do modelo, o benchmark com embeddings reais não conclui neste ambiente.
+
+### Resultado: `hf_benchmark.ts` (bloqueado por rede)
+- A execução iniciou corretamente, mas falhou no download do dataset SQuAD do Hugging Face.
+- Erro observado: `AggregateError [ENETUNREACH]` ao conectar em endpoints HTTPS.
+- Impacto: sem conectividade para download do dataset/modelo, o benchmark HF não conclui neste ambiente.
+
+### Conclusão da sessão
+- **Benchmark sintético/local** (`recall_benchmark.ts`) validado e reproduzido com sucesso.
+- **Benchmarks dependentes de internet/modelo remoto** não puderam ser finalizados por limitação de rede do ambiente de execução.
+
+---
+
+## 10. Reexecução de Benchmarks (Sessão 2026-04-15, 2ª rodada)
+
+### Comandos executados
+1. `npx tsx benchmarks/recall_benchmark.ts`
+2. `npx tsx benchmarks/e5_benchmark.ts`
+3. `npx tsx benchmarks/hf_benchmark.ts`
+
+### Resultado: `recall_benchmark.ts` (executado com sucesso)
+- TurboQuant Recall@10: **48.60%**
+- Spearman Rank Correlation: **0.8915**
+- IVF Probes=8: **Recall@10=33.50%** | **10.07 ms/query**
+- IVF Probes=16: **Recall@10=42.60%** | **15.57 ms/query**
+- IVF Probes=32: **Recall@10=50.80%** | **27.72 ms/query**
+- Engine Stats: docs=2000, dimensions=768000, memoryMB=0.50, ratio=5.8x, saved=2544000, clusters=32
+
+### Resultado: `e5_benchmark.ts` (bloqueado por rede)
+- Falha ao carregar `Xenova/multilingual-e5-small`.
+- Erro observado: `TypeError: fetch failed` com causa `ENETUNREACH`.
+
+### Resultado: `hf_benchmark.ts` (bloqueado por rede)
+- Falha no download do dataset SQuAD no Hugging Face.
+- Erro observado: `AggregateError [ENETUNREACH]`.
+
+### Observação
+- O benchmark sintético (`recall_benchmark.ts`) é estocástico (vetores aleatórios), então variações entre rodadas são esperadas.
+
+---
+
+## 11. Diagnóstico das Falhas de Benchmark (por que está ocorrendo)
+
+As falhas observadas **não indicam bug lógico no motor MiniFaiss**. Elas acontecem por dependências externas de rede no ambiente atual.
+
+### Causa raiz por comando
+
+1. **`npm install` (sem `--ignore-scripts`)**
+   - O pacote `onnxruntime-node` executa `postinstall` para baixar binários nativos.
+   - Esse download externo falha com `ENETUNREACH` (sem rota até o host).
+
+2. **`npx tsx benchmarks/e5_benchmark.ts`**
+   - O script tenta baixar o modelo `Xenova/multilingual-e5-small` via `@huggingface/transformers`.
+   - Sem conectividade externa, o `fetch` falha (`TypeError: fetch failed`, causa `ENETUNREACH`).
+
+3. **`npx tsx benchmarks/hf_benchmark.ts`**
+   - O script tenta baixar `squad_pairs.jsonl.gz` do Hugging Face.
+   - A conexão HTTPS falha com `AggregateError [ENETUNREACH]`.
+
+### Evidências técnicas
+- O benchmark local/sintético (`recall_benchmark.ts`) executa normalmente porque não depende de download de modelo/dataset em runtime.
+- Os erros reportados são de rede (`ENETUNREACH`) e não de tipagem, lógica de ranking ou exceptions do core do `RAGStore`.
+
+### Como resolver
+- Garantir saída HTTPS para domínios do Hugging Face/CDN (modelo e dataset).
+- Em ambientes restritos, pré-baixar e cachear modelo/dataset localmente antes dos benchmarks.
+- Manter `npm install --ignore-scripts` para desenvolvimento quando o postinstall nativo não for necessário.
