@@ -8,7 +8,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test:ci": "tsx benchmarks/recall_benchmark.ts",
+    "test": "npm run test:ci"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
@@ -38,5 +40,6 @@
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
-  }
+  },
+  "license": "Apache-2.0"
 }
